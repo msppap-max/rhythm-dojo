@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rhythm Dojo</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#111111">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Rhythm Dojo</h1>
+    <div class="row">
+      <label>BPM</label>
+      <input id="bpm" type="number" min="30" max="240" value="100" />
+      <button id="start">Start</button>
+      <button id="stop" disabled>Stop</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>Mode</h2>
+      <div class="row">
+        <button id="modePractice" class="pill active">Practice</button>
+        <button id="modeCalib" class="pill">Calibration</button>
+      </div>
+      <p class="hint">
+        ※ iPhoneは「Start」押すまで音が出ない仕様。ここはAppleの宗教なので従う。
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Tap Pad</h2>
+      <button id="pad" class="pad" disabled>Tap</button>
+      <div class="meter">
+        <div class="bar"></div>
+        <div class="center"></div>
+        <div class="needle" id="needle"></div>
+      </div>
+      <div class="stats">
+        <div>Now: <span id="now">--</span> ms</div>
+        <div>Offset: <span id="offset">0</span> ms</div>
+        <div>Count: <span id="count">0</span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Result</h2>
+      <div class="stats">
+        <div>Mean: <span id="mean">--</span> ms</div>
+        <div>Std: <span id="std">--</span> ms</div>
+      </div>
+      <p class="hint" id="msg">StartしてTapしてみて。</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
