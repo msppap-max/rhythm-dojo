@@ -10,12 +10,11 @@
 </head>
 <body>
   <header>
-    <h1>Rhythm Dojo v0.2</h1>
+    <h1>Rhythm Dojo v0.21</h1>
     <div class="row">
       <label>BPM</label>
       <input id="bpm" type="number" min="30" max="240" value="100" />
-      <button id="start">Start</button>
-      <button id="stop" disabled>Stop</button>
+      <div class="miniHeader">Tapで開始（3,2,1…） / Endで終了</div>
     </div>
   </header>
 
@@ -27,7 +26,7 @@
         <button id="modeCalib" class="pill">Calibration</button>
       </div>
       <p class="hint" id="modeHint">
-        Game：30秒でスコア稼ぎ。Calibration：イヤホン遅延を補正（20回タップで完了）。
+        Game：Tapで自動開始（3,2,1…）。Calibration：イヤホン遅延補正（20回タップで保存）。
       </p>
     </section>
 
@@ -55,24 +54,32 @@
       </div>
 
       <p class="hint">
-        Bluetoothは遅延するのが普通。CalibrationでOffsetを作ると判定が信用できるようになる。
+        Bluetooth遅延は普通に出る。CalibrationでOffsetを作ると判定が“まとも”になる。
       </p>
     </section>
 
     <section class="card">
-      <h2>Tap Pad</h2>
-      <button id="pad" class="pad" disabled>Tap</button>
+      <div class="tapHeader">
+        <h2>Tap Pad</h2>
+        <button id="endBtn" class="pill danger" disabled>End</button>
+      </div>
+
+      <button id="pad" class="pad">Tap</button>
 
       <div class="judgeRow">
         <div id="judge" class="judge">READY</div>
         <div class="mini">Now: <span id="now">--</span> ms</div>
       </div>
 
-      <div class="meter">
-        <div class="bar"></div>
+      <!-- 流れるガイド（点が中心線に来たらTap） -->
+      <div class="meter" id="meter">
+        <canvas id="guideCanvas"></canvas>
         <div class="center"></div>
         <div class="needle" id="needle"></div>
       </div>
+
+      <!-- カウントイン表示 -->
+      <div id="countIn" class="countIn hidden">3</div>
 
       <div class="scoreGrid">
         <div class="box">
@@ -93,7 +100,7 @@
         </div>
       </div>
 
-      <p class="hint" id="msg">StartしてTap。まずはCalibration推奨。</p>
+      <p class="hint" id="msg">Tapで自動開始。まずCalibration推奨（Bluetoothの場合）。</p>
     </section>
 
     <section class="card">
@@ -117,3 +124,4 @@
   <script src="app.js"></script>
 </body>
 </html>
+
