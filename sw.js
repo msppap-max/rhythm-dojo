@@ -1,4 +1,4 @@
-const CACHE = "rhythm-dojo-v0-2";
+const CACHE = "rhythm-dojo-v0-21";
 const ASSETS = ["./","./index.html","./style.css","./app.js","./manifest.json"];
 
 self.addEventListener("install", (e) => {
