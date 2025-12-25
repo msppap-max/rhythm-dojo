@@ -10,7 +10,7 @@
 </head>
 <body>
   <header>
-    <h1>Rhythm Dojo</h1>
+    <h1>Rhythm Dojo v0.2</h1>
     <div class="row">
       <label>BPM</label>
       <input id="bpm" type="number" min="30" max="240" value="100" />
@@ -23,36 +23,94 @@
     <section class="card">
       <h2>Mode</h2>
       <div class="row">
-        <button id="modePractice" class="pill active">Practice</button>
+        <button id="modePractice" class="pill active">Game</button>
         <button id="modeCalib" class="pill">Calibration</button>
       </div>
+      <p class="hint" id="modeHint">
+        Game：30秒でスコア稼ぎ。Calibration：イヤホン遅延を補正（20回タップで完了）。
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Pattern</h2>
+      <div class="grid">
+        <button id="patQuarter" class="pill active">4分</button>
+        <button id="patEighth" class="pill">8分</button>
+        <button id="patSixteenth" class="pill">16分</button>
+        <button id="patTriplet" class="pill">3連</button>
+        <button id="patOffbeat" class="pill">裏拍</button>
+      </div>
+
+      <h3 class="sub">Difficulty</h3>
+      <div class="row">
+        <button id="diffNormal" class="pill active">Normal</button>
+        <button id="diffHard" class="pill">Hard</button>
+        <button id="diffInsane" class="pill">Insane</button>
+      </div>
+
+      <h3 class="sub">Offset（Bluetooth用）</h3>
+      <div class="row">
+        <div class="mini">Offset: <span id="offset">0</span> ms</div>
+        <button id="resetOffset" class="pill">Offsetリセット</button>
+      </div>
+
       <p class="hint">
-        ※ iPhoneは「Start」押すまで音が出ない仕様。ここはAppleの宗教なので従う。
+        Bluetoothは遅延するのが普通。CalibrationでOffsetを作ると判定が信用できるようになる。
       </p>
     </section>
 
     <section class="card">
       <h2>Tap Pad</h2>
       <button id="pad" class="pad" disabled>Tap</button>
+
+      <div class="judgeRow">
+        <div id="judge" class="judge">READY</div>
+        <div class="mini">Now: <span id="now">--</span> ms</div>
+      </div>
+
       <div class="meter">
         <div class="bar"></div>
         <div class="center"></div>
         <div class="needle" id="needle"></div>
       </div>
-      <div class="stats">
-        <div>Now: <span id="now">--</span> ms</div>
-        <div>Offset: <span id="offset">0</span> ms</div>
-        <div>Count: <span id="count">0</span></div>
+
+      <div class="scoreGrid">
+        <div class="box">
+          <div class="label">Score</div>
+          <div class="value" id="score">0</div>
+        </div>
+        <div class="box">
+          <div class="label">Combo</div>
+          <div class="value" id="combo">0</div>
+        </div>
+        <div class="box">
+          <div class="label">Max</div>
+          <div class="value" id="maxCombo">0</div>
+        </div>
+        <div class="box">
+          <div class="label">Time</div>
+          <div class="value" id="timeLeft">30.0</div>
+        </div>
       </div>
+
+      <p class="hint" id="msg">StartしてTap。まずはCalibration推奨。</p>
     </section>
 
     <section class="card">
       <h2>Result</h2>
-      <div class="stats">
-        <div>Mean: <span id="mean">--</span> ms</div>
-        <div>Std: <span id="std">--</span> ms</div>
+      <div class="resultGrid">
+        <div class="mini">PERFECT: <span id="cPerfect">0</span></div>
+        <div class="mini">GREAT: <span id="cGreat">0</span></div>
+        <div class="mini">GOOD: <span id="cGood">0</span></div>
+        <div class="mini">BAD: <span id="cBad">0</span></div>
+        <div class="mini">MISS: <span id="cMiss">0</span></div>
       </div>
-      <p class="hint" id="msg">StartしてTapしてみて。</p>
+
+      <div class="row" style="margin-top:10px;">
+        <div class="mini">Mean: <span id="mean">--</span> ms</div>
+        <div class="mini">Std: <span id="std">--</span> ms</div>
+        <div class="mini">Acc: <span id="acc">--</span> %</div>
+      </div>
     </section>
   </main>
 
