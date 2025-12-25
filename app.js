@@ -1,43 +1,41 @@
-// Rhythm Dojo v0.2
-// 追加：Pattern / 判定 / スコア&コンボ / 30秒チャレンジ / Offset保存
+// Rhythm Dojo v0.21
+// 追加：自動スタート（Tapで開始）＋3,2,1カウントイン＋流れるガイド＋判定演出
 
 let audioCtx = null;
 let master = null;
 
 let isRunning = false;
-let mode = "practice"; // "practice" | "calib"
 let bpm = 100;
-let spb = 0.6; // seconds per beat
-
-let startTime = 0;
-let nextBeatTime = 0;
-let scheduleAhead = 0.12;
-let tickIntervalMs = 25;
+let spb = 0.6;
 
 const SESSION_SECONDS = 30;
+const COUNT_IN_BEATS = 3; // 3,2,1
 
 const OFFSET_KEY = "offset_bt_ms";
 let latencyCompMs = 0;
 
-// Game state
-let pattern = "quarter";    // quarter|eighth|sixteenth|triplet|offbeat
-let difficulty = "hard";    // normal|hard|insane
+let mode = "practice"; // practice | calib
+let pattern = "quarter"; // quarter|eighth|sixteenth|triplet|offbeat
+let difficulty = "normal"; // normal|hard|insane
+
+let startTime = 0;        // 実プレイ開始（カウントイン後）
+let countInStart = 0;     // カウントイン開始
 let sessionEndTime = 0;
+let nextBeatTime = 0;
+let scheduleAhead = 0.12;
+let tickIntervalMs = 25;
 
-let score = 0;
-let combo = 0;
-let maxCombo = 0;
+let score = 0, combo = 0, maxCombo = 0;
 let lastTargetIndex = -999999;
-
-let hitErrorsMs = []; // MISS以外の誤差だけ保存（分析用）
+let hitErrorsMs = [];
 let counts = { perfect:0, great:0, good:0, bad:0, miss:0 };
 
 const PAT = {
-  quarter:   { label: "4分",     interval: (spb)=>spb,    phase: (spb)=>0 },
-  eighth:    { label: "8分",     interval: (spb)=>spb/2,  phase: (spb)=>0 },
-  sixteenth: { label: "16分",    interval: (spb)=>spb/4,  phase: (spb)=>0 },
-  triplet:   { label: "3連",     interval: (spb)=>spb/3,  phase: (spb)=>0 },
-  offbeat:   { label: "裏拍",    interval: (spb)=>spb,    phase: (spb)=>spb/2 }
+  quarter:   { label: "4分",  interval: (spb)=>spb,   phase: (spb)=>0 },
+  eighth:    { label: "8分",  interval: (spb)=>spb/2, phase: (spb)=>0 },
+  sixteenth: { label: "16分", interval: (spb)=>spb/4, phase: (spb)=>0 },
+  triplet:   { label: "3連",  interval: (spb)=>spb/3, phase: (spb)=>0 },
+  offbeat:   { label: "裏拍", interval: (spb)=>spb,   phase: (spb)=>spb/2 }
 };
 
 const DIFF = {
@@ -50,20 +48,25 @@ const POINTS = { perfect:100, great:70, good:40, bad:10, miss:0 };
 
 // UI
 const elBpm = document.getElementById("bpm");
-const elStart = document.getElementById("start");
-const elStop = document.getElementById("stop");
 const elPad = document.getElementById("pad");
+const elEndBtn = document.getElementById("endBtn");
 
 const elNow = document.getElementById("now");
-const elOffset = document.getElementById("offset");
 const elNeedle = document.getElementById("needle");
 const elMsg = document.getElementById("msg");
 const elJudge = document.getElementById("judge");
-const elTimeLeft = document.getElementById("timeLeft");
 
 const elScore = document.getElementById("score");
 const elCombo = document.getElementById("combo");
 const elMaxCombo = document.getElementById("maxCombo");
+const elTimeLeft = document.getElementById("timeLeft");
+
+const elOffset = document.getElementById("offset");
+const elCountIn = document.getElementById("countIn");
+
+const elModePractice = document.getElementById("modePractice");
+const elModeCalib = document.getElementById("modeCalib");
+const elModeHint = document.getElementById("modeHint");
 
 const elMean = document.getElementById("mean");
 const elStd = document.getElementById("std");
@@ -75,14 +78,18 @@ const elCGood = document.getElementById("cGood");
 const elCBad = document.getElementById("cBad");
 const elCMiss = document.getElementById("cMiss");
 
-const elModePractice = document.getElementById("modePractice");
-const elModeCalib = document.getElementById("modeCalib");
-const elModeHint = document.getElementById("modeHint");
+// Guide canvas
+const elMeter = document.getElementById("meter");
+const canvas = document.getElementById("guideCanvas");
+const ctx2d = canvas.getContext("2d");
+let dpr = 1;
 
 let timerId = null;
 let uiTimerId = null;
+let rafId = null;
 
-// PWA: service worker
+let calibErrorsMs = [];
+
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
@@ -114,7 +121,7 @@ function beep(atTime, accent=false) {
 function scheduler() {
   if (!isRunning) return;
 
-  // セッション終了
+  // 終了（practiceのみ）
   if (mode === "practice" && audioCtx.currentTime >= sessionEndTime) {
     stop(true);
     return;
@@ -122,7 +129,7 @@ function scheduler() {
 
   // クリック音（4分の頭を強く）
   while (nextBeatTime < audioCtx.currentTime + scheduleAhead) {
-    const beatIndex = Math.round((nextBeatTime - startTime) / spb);
+    const beatIndex = Math.round((nextBeatTime - countInStart) / spb);
     const accent = (beatIndex % 4 === 0);
     beep(nextBeatTime, accent);
     nextBeatTime += spb;
@@ -130,72 +137,87 @@ function scheduler() {
 }
 
 function resetGameState() {
-  score = 0;
-  combo = 0;
-  maxCombo = 0;
+  score = 0; combo = 0; maxCombo = 0;
   lastTargetIndex = -999999;
   hitErrorsMs = [];
   counts = { perfect:0, great:0, good:0, bad:0, miss:0 };
+  calibErrorsMs = [];
+
+  setJudge("READY", "--", null);
+  renderNow("--");
   renderScoreboard();
   renderResult();
-  renderNow("--");
-  setJudge("READY", "--");
+  renderTimeLeft(true);
 }
 
-function start() {
+function armStart() {
   bpm = Number(elBpm.value || 100);
   spb = 60 / bpm;
 
   ensureAudio();
-  audioCtx.resume(); // iOS対策：ユーザー操作でresume必須
+  audioCtx.resume();
 
   resetGameState();
 
   isRunning = true;
-  elStart.disabled = true;
-  elStop.disabled = false;
-  elPad.disabled = false;
+  elEndBtn.disabled = false;
 
-  // カウントイン：0.25秒後に開始
-  startTime = audioCtx.currentTime + 0.25;
-  nextBeatTime = startTime;
+  // カウントイン開始（0.25秒後）
+  countInStart = audioCtx.currentTime + 0.25;
+  startTime = countInStart + COUNT_IN_BEATS * spb;   // ここが本番開始
+  nextBeatTime = countInStart;
 
   if (mode === "practice") {
     sessionEndTime = startTime + SESSION_SECONDS;
-    elMsg.textContent = `30秒チャレンジ開始：${PAT[pattern].label} / ${difficulty.toUpperCase()}。`;
+    elMsg.textContent = `Tapで開始：3,2,1… → ${PAT[pattern].label} / ${difficulty.toUpperCase()}（30秒）`;
   } else {
-    elMsg.textContent = "Calibration：クリックに合わせて20回タップ。終わったら自動でOffset更新。";
+    // calibrationは開始時刻だけ作ってクリックを鳴らす（20回タップで完了）
+    sessionEndTime = startTime + 9999;
+    elMsg.textContent = "Calibration：クリックに合わせて20回タップ。完了するとOffsetを保存。";
   }
 
   timerId = setInterval(scheduler, tickIntervalMs);
   uiTimerId = setInterval(renderTimeLeft, 50);
-  renderTimeLeft();
+
+  startGuideLoop();
 }
 
 function stop(fromAuto=false) {
   isRunning = false;
-  elStart.disabled = false;
-  elStop.disabled = true;
-  elPad.disabled = true;
+  elEndBtn.disabled = true;
 
   if (timerId) clearInterval(timerId);
   if (uiTimerId) clearInterval(uiTimerId);
   timerId = null;
   uiTimerId = null;
 
-  renderTimeLeft(true);
+  stopGuideLoop();
+
+  hideCountIn();
+
+  if (mode === "practice") {
+    elMsg.textContent = fromAuto
+      ? "終了！スコア/精度を確認。次はPerfect率かStd（安定度）を伸ばす。"
+      : "End。結果を見て癖（食い/タメ）とブレを潰そう。";
+  } else {
+    elMsg.textContent = "Calibration停止。必要ならもう一度Tapで開始。";
+  }
+
   renderResult();
-  elMsg.textContent = fromAuto
-    ? "終了！スコアと精度を確認。次はPerfect率かStd（安定度）を伸ばす。"
-    : "Stop。結果を見て癖（食い/タメ）とブレを潰そう。";
+  renderTimeLeft(true);
 }
 
-function renderTimeLeft(forceEnd=false) {
-  if (!audioCtx || mode !== "practice") {
+function renderTimeLeft(forceIdle=false) {
+  if (!audioCtx || mode !== "practice" || forceIdle || !isRunning) {
     elTimeLeft.textContent = SESSION_SECONDS.toFixed(1);
     return;
   }
-  const left = forceEnd ? 0 : Math.max(0, sessionEndTime - audioCtx.currentTime);
+  // カウントイン中は残り固定（本番開始から減る）
+  if (audioCtx.currentTime < startTime) {
+    elTimeLeft.textContent = SESSION_SECONDS.toFixed(1);
+    return;
+  }
+  const left = Math.max(0, sessionEndTime - audioCtx.currentTime);
   elTimeLeft.textContent = left.toFixed(1);
 }
 
@@ -203,8 +225,6 @@ function getTarget(tapT) {
   const p = PAT[pattern];
   const interval = p.interval(spb);
   const base = startTime + p.phase(spb);
-
-  // 近いターゲットを取る（丸め）
   const n = Math.round((tapT - base) / interval);
   return { n, ideal: base + n * interval, interval, base };
 }
@@ -218,16 +238,21 @@ function gradeFromAbs(absMs) {
   return "miss";
 }
 
-function setJudge(text, errMs) {
+function setJudge(text, errMs, grade) {
   elJudge.textContent = text;
   elNow.textContent = (errMs === "--") ? "--" : String(Math.round(errMs));
+
+  // 色＋ポップ演出
+  elJudge.classList.remove("perfect","great","good","bad","miss","pop");
+  if (grade) elJudge.classList.add(grade);
+  // 再付与でアニメが効くように1フレーム空ける
+  requestAnimationFrame(() => elJudge.classList.add("pop"));
 }
 
 function renderNow(errMs) {
-  // メーター表示（±150ms）
-  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
   const v = (errMs === "--") ? 0 : clamp(errMs, -150, 150);
-  const pct = (v + 150) / 300; // 0..1
+  const pct = (v + 150) / 300;
   elNeedle.style.left = `${pct * 100}%`;
 }
 
@@ -273,30 +298,82 @@ function saveOffset() {
   elOffset.textContent = String(Math.round(latencyCompMs));
 }
 
+function showCountIn(n) {
+  elCountIn.textContent = String(n);
+  elCountIn.classList.remove("hidden");
+}
+function hideCountIn() {
+  elCountIn.classList.add("hidden");
+}
+
+function applyPadFx(grade) {
+  const map = {
+    perfect:"fx-perfect",
+    great:"fx-great",
+    good:"fx-good",
+    bad:"fx-bad",
+    miss:"fx-miss"
+  };
+  const cls = map[grade];
+  if (!cls) return;
+
+  elPad.classList.remove("fx-perfect","fx-great","fx-good","fx-bad","fx-miss");
+  elPad.classList.add(cls);
+
+  // combo数字の軽いポップ
+  if (grade !== "miss") {
+    elCombo.classList.remove("pop");
+    requestAnimationFrame(()=>elCombo.classList.add("pop"));
+  }
+
+  setTimeout(()=>{
+    elPad.classList.remove(cls);
+  }, 140);
+}
+
 function onTap() {
-  if (!isRunning || !audioCtx) return;
+  // まだ走ってないならTapで自動開始
+  if (!isRunning) {
+    armStart();
+    return;
+  }
+
+  if (!audioCtx) return;
 
   const rawTapT = audioCtx.currentTime;
+
+  // カウントイン中は判定しない（混乱防止）
+  if (rawTapT < startTime) {
+    const beatsLeft = Math.ceil((startTime - rawTapT) / spb);
+    // 3,2,1の表示
+    const n = Math.max(1, Math.min(COUNT_IN_BEATS, beatsLeft));
+    showCountIn(n);
+    setJudge(String(n), "--", null);
+    renderNow("--");
+    return;
+  } else {
+    hideCountIn();
+  }
+
   const tapT = rawTapT + (latencyCompMs / 1000);
 
-  // セッション外なら無視
-  if (mode === "practice" && rawTapT >= sessionEndTime) return;
-
+  // Calibration
   if (mode === "calib") {
-    // Calibrationは4分の拍に合わせる（最短で端末クセを取る）
     const ideal = nearestBeatTime(tapT);
     const errMs = (tapT - ideal) * 1000;
     calibPush(errMs);
     return;
   }
 
-  // Game
+  // Practice/Game
   const { n, ideal } = getTarget(tapT);
-  // 同じターゲット連打をMISS扱い（ズル防止＆気持ちよさ優先）
+
+  // 同一ターゲット連打をMISS扱い
   if (n <= lastTargetIndex) {
     counts.miss++;
     combo = 0;
-    setJudge("MISS", 0);
+    setJudge("MISS", 0, "miss");
+    applyPadFx("miss");
     renderNow(0);
     renderScoreboard();
     renderResult();
@@ -304,7 +381,7 @@ function onTap() {
   }
   lastTargetIndex = n;
 
-  const errMs = (tapT - ideal) * 1000; // +遅い / -早い
+  const errMs = (tapT - ideal) * 1000;
   const absMs = Math.abs(errMs);
   const g = gradeFromAbs(absMs);
 
@@ -317,48 +394,120 @@ function onTap() {
     combo++;
     if (combo > maxCombo) maxCombo = combo;
 
-    // 点数：ベース + コンボボーナス（最大+50）
     const base = POINTS[g];
     const bonus = Math.min(combo, 50);
     score += (base + bonus);
   }
 
-  setJudge(g.toUpperCase(), errMs);
+  setJudge(g.toUpperCase(), errMs, g);
+  applyPadFx(g);
   renderNow(errMs);
   renderScoreboard();
   renderResult();
 }
 
-let calibErrorsMs = [];
 function calibPush(errMs) {
   calibErrorsMs.push(errMs);
-  setJudge("CALIB", errMs);
+  setJudge("CALIB", errMs, null);
   renderNow(errMs);
 
   if (calibErrorsMs.length >= 20) {
     const med = median(calibErrorsMs);
-    latencyCompMs = -med;   // いつも遅い(+ms)なら補正はマイナス
+    latencyCompMs = -med;
     saveOffset();
     calibErrorsMs = [];
     elMsg.textContent = `Calibration完了。Offsetを ${Math.round(latencyCompMs)} ms に保存した。Gameで試そう。`;
-    setJudge("READY", "--");
+    setJudge("READY", "--", null);
     renderNow("--");
+    hideCountIn();
   }
 }
 
 function nearestBeatTime(t) {
-  const n = Math.round((t - startTime) / spb);
-  return startTime + n * spb;
+  const n = Math.round((t - countInStart) / spb);
+  return countInStart + n * spb;
 }
 
-// Mode / Pattern / Difficulty
+// Guide（流れる点）
+function resizeCanvas() {
+  const rect = elMeter.getBoundingClientRect();
+  dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+  ctx2d.setTransform(dpr,0,0,dpr,0,0);
+}
+
+function drawGuide() {
+  if (!isRunning || !audioCtx) return;
+
+  const w = elMeter.clientWidth;
+  const h = elMeter.clientHeight;
+  ctx2d.clearRect(0, 0, w, h);
+
+  const now = audioCtx.currentTime;
+  const base = startTime + PAT[pattern].phase(spb);
+  const interval = PAT[pattern].interval(spb);
+
+  // 表示窓（中心に向かって流れる）
+  const ahead = 1.25;   // 未来をどれくらい見せるか（秒）
+  const behind = 0.35;  // 過去側（少しだけ）
+
+  // カウントイン中は「点」を出さない（混乱防止）
+  if (now < startTime) {
+    rafId = requestAnimationFrame(drawGuide);
+    return;
+  }
+
+  const nNow = Math.round((now - base) / interval);
+  const startN = nNow - 2;
+  const endN = nNow + Math.ceil(ahead / interval) + 2;
+
+  // 点の描画
+  for (let n = startN; n <= endN; n++) {
+    const t = base + n * interval;
+    const dt = t - now; // +未来 / -過去
+    if (dt < -behind || dt > ahead) continue;
+
+    const x = (w * 0.5) + (dt / ahead) * (w * 0.5); // 未来は右、中心へ
+    const y = h * 0.5;
+
+    // ちょい“未来ほど薄い”
+    const alpha = 0.15 + 0.65 * (1 - Math.min(1, Math.abs(dt) / ahead));
+    ctx2d.beginPath();
+    ctx2d.arc(x, y, 5, 0, Math.PI * 2);
+    ctx2d.fillStyle = `rgba(234,234,234,${alpha.toFixed(3)})`;
+    ctx2d.fill();
+  }
+
+  rafId = requestAnimationFrame(drawGuide);
+}
+
+function startGuideLoop() {
+  resizeCanvas();
+  window.addEventListener("resize", resizeCanvas);
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = requestAnimationFrame(drawGuide);
+}
+
+function stopGuideLoop() {
+  window.removeEventListener("resize", resizeCanvas);
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+  // クリア
+  const w = elMeter.clientWidth;
+  const h = elMeter.clientHeight;
+  ctx2d.clearRect(0, 0, w, h);
+}
+
+// Mode/Pattern/Difficulty
 function setMode(next) {
   mode = next;
   elModePractice.classList.toggle("active", mode === "practice");
   elModeCalib.classList.toggle("active", mode === "calib");
   elModeHint.textContent = (mode === "practice")
-    ? "Game：30秒でスコア稼ぎ。判定は厳しめ。"
-    : "Calibration：Bluetooth遅延を補正（20回タップで自動設定＆保存）。";
+    ? "Game：Tapで自動開始（3,2,1…）。点が中心線に来たらTap。"
+    : "Calibration：Tapで開始。クリックに合わせて20回タップでOffset保存。";
+  if (isRunning) stop(false);
   resetGameState();
 }
 
@@ -369,8 +518,9 @@ function setPattern(p) {
   document.getElementById("patSixteenth").classList.toggle("active", p === "sixteenth");
   document.getElementById("patTriplet").classList.toggle("active", p === "triplet");
   document.getElementById("patOffbeat").classList.toggle("active", p === "offbeat");
+  if (isRunning) stop(false);
   resetGameState();
-  elMsg.textContent = `Pattern：${PAT[p].label} に切替。Startで30秒勝負。`;
+  elMsg.textContent = `Pattern：${PAT[p].label}。点が中心線に来たらTap。`;
 }
 
 function setDifficulty(d) {
@@ -378,26 +528,26 @@ function setDifficulty(d) {
   document.getElementById("diffNormal").classList.toggle("active", d === "normal");
   document.getElementById("diffHard").classList.toggle("active", d === "hard");
   document.getElementById("diffInsane").classList.toggle("active", d === "insane");
+  if (isRunning) stop(false);
   resetGameState();
-  elMsg.textContent = `Difficulty：${d.toUpperCase()} に切替。`;
+  elMsg.textContent = `Difficulty：${d.toUpperCase()}。`;
 }
 
 // stats
-function mean(arr) { return arr.reduce((a,b)=>a+b,0) / arr.length; }
-function std(arr, m) {
-  const v = arr.reduce((a,b)=>a+(b-m)*(b-m),0) / (arr.length - 1);
+function mean(arr){ return arr.reduce((a,b)=>a+b,0)/arr.length; }
+function std(arr,m){
+  const v = arr.reduce((a,b)=>a+(b-m)*(b-m),0)/(arr.length-1);
   return Math.sqrt(v);
 }
-function median(arr) {
-  const a = [...arr].sort((x,y)=>x-y);
-  const mid = Math.floor(a.length/2);
-  return (a.length % 2) ? a[mid] : (a[mid-1]+a[mid])/2;
+function median(arr){
+  const a=[...arr].sort((x,y)=>x-y);
+  const mid=Math.floor(a.length/2);
+  return (a.length%2)?a[mid]:(a[mid-1]+a[mid])/2;
 }
 
-// UI wiring
-elStart.addEventListener("click", start);
-elStop.addEventListener("click", () => stop(false));
+// Wiring
 elPad.addEventListener("pointerdown", onTap);
+elEndBtn.addEventListener("click", () => stop(false));
 
 elModePractice.addEventListener("click", () => setMode("practice"));
 elModeCalib.addEventListener("click", () => setMode("calib"));
@@ -418,8 +568,9 @@ document.getElementById("resetOffset").addEventListener("click", () => {
   elMsg.textContent = "Offsetを0に戻した。BluetoothでズレるならCalibrationしてね。";
 });
 
-// 初期化
+// init
 loadOffset();
 setMode("practice");
 setPattern("quarter");
-setDifficulty("hard");
+setDifficulty("normal");
+resetGameState();
